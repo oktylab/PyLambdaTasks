@@ -15,6 +15,9 @@ readme = "README.md"
 
 requires-python = ">=3.10"
 
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+
 keywords = [
     "aws", 
     "lambda", 
@@ -26,24 +29,16 @@ keywords = [
     "boto3"
 ]
 
-license = "GPL-3.0-or-later"
 
 classifiers = [
-    # Development Status
     "Development Status :: 3 - Alpha",
-    # Intended Audience
     "Intended Audience :: Developers",
-    # License
-    # "License :: OSI Approved :: MIT License",
-    # Supported Python Versions
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    # Topic
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Distributed Computing",
-    # Operating System
     "Operating System :: OS Independent",
 ]
 

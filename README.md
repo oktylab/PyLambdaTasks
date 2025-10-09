@@ -89,6 +89,8 @@ app = LambdaTasks(
     # Boto3 client configuration.
     aws_config=AwsConfig(
         region_name="us-east-1",
+        aws_access_key_id="test",
+        aws_secret_access_key="test",
         # For local development, this URL points to our emulator.
         # Boto3 will automatically connect to it instead of AWS.
         endpoint_url="http://127.0.0.1:8080"
@@ -257,3 +259,18 @@ Builds a production Docker image. This is a thin wrapper around `docker build`.
 ## License
 
 This project is licensed under the GNU General Public License v3.0.
+
+---
+
+## Roadmap
+
+Here are some of the features and improvements planned for future releases:
+
+- [ ] **Usage without Valkey:** 
+  Introduce a "fire-and-forget" mode or support for alternative, lightweight state backends for users who don't need persistent state tracking.
+- [ ] **Custom Logging:** 
+  Provide hooks or a configurable system to integrate with custom logging solutions and structured log formats.
+- [ ] **AIOBoto3 Support:** 
+  Offer native integration with `aioboto3` for a fully asynchronous AWS client experience, improving performance for I/O-bound tasks.
+- [ ] **UI for Task Tracking:** 
+  Develop a simple web-based user interface to visualize task queues, inspect results, and monitor the system.
