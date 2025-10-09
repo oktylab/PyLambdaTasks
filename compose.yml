@@ -1,0 +1,85 @@
+services:
+
+  ############################################################
+  ############################################################
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    container_name: pylambdatasks-valkey
+    ports:
+      - "6379:6379"
+    networks:
+      - pylambdatasks-net
+
+
+  ############################################################
+  ############################################################
+  lambda:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: base
+    container_name: pylambdatasks-lambda
+    ports:
+      - "9000:8080"
+    networks:
+      - pylambdatasks-net
+
+    # overide the default entrypoint and command to run local emulator
+    entrypoint: ""
+    command:
+     - "pylambdatasks"
+     - "run"
+     - "handler.handler"
+     - "--reload"
+     - "--port"
+     - "8080"
+    volumes:
+      - ./develop:/var/task
+      - ./src/pylambdatasks:/var/task/pylambdatasks
+    depends_on:
+      - valkey
+
+
+  ############################################################
+  ############################################################
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: base
+    container_name: pylambdatasks-api
+    ports:
+      - "8000:8000"
+    networks:
+      - pylambdatasks-net
+
+    entrypoint: ""
+    command: uvicorn api:api --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./develop:/var/task
+      - ./src/pylambdatasks:/var/task/pylambdatasks
+    depends_on:
+      - lambda
+
+
+  ############################################################
+  ############################################################
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight
+    restart: always
+    ports:
+      - "5540:5540"
+    networks:
+      - pylambdatasks-net
+
+    volumes:
+      - redisinsight_data:/data
+
+networks:
+  pylambdatasks-net:
+    driver: bridge
+
+
+volumes:
+  redisinsight_data:

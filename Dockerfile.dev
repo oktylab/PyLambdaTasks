@@ -1,0 +1,21 @@
+FROM python:3.11-slim-bookworm AS base
+WORKDIR /var/task
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV PYTHONPATH=/var/task
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml .
+COPY develop/requirements.txt .
+
+RUN pip install --no-cache-dir ".[cli]" -r requirements.txt
+
+COPY develop/ .
+
+# Download and install the AWS Lambda Runtime Interface Emulator (RIE).
+RUN curl -Lo /usr/local/bin/aws-lambda-rie https://github.com/aws/aws-lambda-runtime-interface-emulator/releases/latest/download/aws-lambda-rie
+RUN chmod +x /usr/local/bin/aws-lambda-rie
+
+ENTRYPOINT [ "/usr/local/bin/aws-lambda-rie", "/usr/local/bin/python", "-m", "awslambdaric" ]
+CMD [ "handler.handler" ]

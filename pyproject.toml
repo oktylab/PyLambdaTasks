@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pylambdatasks"
+version = "0.1.0"
+description = "A library to simplify creating AWS Lambda images and managing multiple tasks within one image."
+
+authors = [
+  { name="Oktylab", email="contact@oktylab.com" },
+]
+
+readme = "README.md"
+
+requires-python = ">=3.10"
+
+keywords = [
+    "aws", 
+    "lambda", 
+    "serverless", 
+    "tasks", 
+    "async", 
+    "valkey", 
+    "redis", 
+    "boto3"
+]
+
+license = "GPL-3.0-or-later"
+
+classifiers = [
+    # Development Status
+    "Development Status :: 3 - Alpha",
+    # Intended Audience
+    "Intended Audience :: Developers",
+    # License
+    # "License :: OSI Approved :: MIT License",
+    # Supported Python Versions
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    # Topic
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Distributed Computing",
+    # Operating System
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "boto3",
+    "valkey",
+    "awslambdaric"
+]
+
+[project.optional-dependencies]
+cli = [
+    "typer",
+    "rich",
+    "watchfiles",
+    "aiohttp"
+]
+
+
+[project.urls]
+Homepage = "https://github.com/oktylab/PyLambdaTasks"
+Repository = "https://github.com/oktylab/PyLambdaTasks"
+"Bug Tracker" = "https://github.com/oktylab/PyLambdaTasks/issues"
+
+[project.scripts]
+pylambdatasks = "pylambdatasks.cli:app"
