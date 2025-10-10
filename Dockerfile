@@ -17,4 +17,3 @@ COPY src/pylambdatasks/ ./pylambdatasks
 
 ENTRYPOINT [ "/usr/local/bin/python", "-m", "awslambdaric" ]
 CMD [ "handler.handler" ]
-CMD [ "pylambdatasks", "run", "handler.handler", "--reload"]

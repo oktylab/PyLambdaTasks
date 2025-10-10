@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pylambdatasks"
-version = "0.1.1"
+version = "0.1.2"
 description = "A library to simplify creating AWS Lambda images and managing multiple tasks within one image."
 
 authors = [
   { name="Oktylab", email="contact@oktylab.com" },
+  { name="Crosspost", email="services@crosspost.app"}
 ]
 
 readme = "README.md"

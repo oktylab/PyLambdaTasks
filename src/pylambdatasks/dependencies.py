@@ -51,8 +51,8 @@
 
 import inspect
 import typing
-from contextlib import AsyncExitStack
-from typing import Callable, Any, Dict, List, Optional, Annotated
+from contextlib import AsyncExitStack, asynccontextmanager
+from typing import Callable, Any, Dict, Optional, Annotated
 
 # ==============================================================================
 # Public API
@@ -140,10 +140,18 @@ class DependencyResolver:
 
         # Execute the dependency callable with its own resolved dependencies.
         if inspect.isasyncgenfunction(dep_callable):
-            # For async generators, enter it into the exit stack and get the yielded value.
-            resolved_value = await self._exit_stack.enter_async_context(
-                dep_callable(**sub_dependencies)
-            )
+            # This dependency is a raw async generator. We need to wrap it to make
+            # it compatible with the async context manager protocol.
+            
+            # 1. Wrap the generator function with the @asynccontextmanager logic.
+            cm_factory = asynccontextmanager(dep_callable)
+            
+            # 2. Create an instance of the context manager with its dependencies.
+            cm_instance = cm_factory(**sub_dependencies)
+            
+            # 3. Now, enter the properly wrapped context manager into the exit stack.
+            resolved_value = await self._exit_stack.enter_async_context(cm_instance)
+
         elif inspect.iscoroutinefunction(dep_callable):
             # For async functions, await the result.
             resolved_value = await dep_callable(**sub_dependencies)

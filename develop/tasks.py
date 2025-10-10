@@ -2,6 +2,7 @@ from typing import Annotated, Dict, Any
 from pylambdatasks import Depends
 from pylambdatasks.state import StateManager
 from handler import app
+import asyncio
 
 def get_user_context() -> Dict[str, str]:
     """A simple dependency providing a mock user context."""
@@ -29,11 +30,27 @@ async def process_data(
     print(f"Executing PROCESS_DATA task for user {context['user_id']}")
     
     processed_data = {key.upper(): value for key, value in data.items()}
-    
+
+
+    CONCURRENT_TASKS = 10
+    tasks_to_run = [
+        add_numbers.invoke(a=5, b=10)
+        for _ in range(CONCURRENT_TASKS)
+    ]
+    print(f"Dispatching {CONCURRENT_TASKS} concurrent 'ADD_NUMBERS' tasks to the emulator...")
+    results = await asyncio.gather(*tasks_to_run)
+    print(results)
+
+
+
     # Use the injected state manager to add custom metadata to the task record
     await self.update_metadata({
         "processed_keys": list(processed_data.keys()),
-        "processed_by": context['user_id']
+        "processed_by": context['user_id'],
+        "result": results
     })
     
-    return {"processed_data": processed_data}
+    return {
+        "processed_data": processed_data,
+        "results": results
+    }
