@@ -237,6 +237,53 @@ services:
 
 With this setup, `docker-compose up` will use your production image for local development. When you're ready to deploy, you can push the exact same image to AWS ECR, and it will work correctly because AWS will use the original `ENTRYPOINT` defined in the `Dockerfile`.
 
+
+
+
+## Lifecycle hooks: init() and finish()
+
+You can register async startup and shutdown hooks on your app instance:
+
+- @app.init() — runs once on cold-start inside the handler's async loop (await async work)
+- @app.finish() — attempted on process exit; async hooks are awaited in a short-lived loop in a background thread
+
+Example (handler.py):
+
+```python
+from pylambdatasks import LambdaTasks, AwsConfig, ValkeyConfig
+
+app = LambdaTasks(
+    task_modules=['tasks'],
+    default_lambda_function_name="PyLambdaTasks",
+    aws_config=AwsConfig(...),
+    valkey_config=ValkeyConfig(...),
+)
+
+@app.init()
+async def on_startup():
+    # async connection/pool creation, warmups, etc.
+    print("startup: creating DB pool / connections")
+    # await db.connect()
+
+@app.finish()
+async def on_shutdown():
+    # close connections, flush metrics
+    print("shutdown: closing DB pool / connections")
+    # await db.close()
+
+handler = app.handler
+```
+
+Testing locally
+1. Start emulator: pylambdatasks run handler.handler --reload
+2. Make a first invocation (e.g., call a task). You should see the `on_startup` output printed during the first invocation.
+3. Stop the process/container; you should see `on_shutdown` attempted on exit (may be subject to short timeout).
+
+Notes
+- Hooks may be sync or async; prefer async for non-blocking behavior.
+- Keep init quick to avoid delaying the first invocation excessively.
+- Finish runs in a background thread with a short join timeout — do not rely on long-running teardown there.
+
 ## CLI Reference
 
 #### `pylambdatasks run [OPTIONS] HANDLER_PATH`

@@ -32,4 +32,17 @@ app = LambdaTasks(
     #     ssl_cert_reqs=None, 
     # )
 )
+
+
+
+@app.init()
+async def on_startup():
+    print("Lambda function is starting up...")
+
+
+@app.finish()
+async def on_shutdown():
+    print("Lambda function is shutting down...")
+
+
 handler = app.handler

@@ -90,10 +90,46 @@ class LambdaTasks:
         # registered with this application instance.
         self.task = TaskDecorator(registry=self.registry, settings=self.settings)
 
-        # Instantiate the handler, which contains the logic for executing a
-        # task when the Lambda function is invoked.
-        self._handler_instance = Handler(registry=self.registry, settings=self.settings)
+        # Lifecycle hooks storage (developers can register async or sync callables).
+        # Init hooks run during the first handler invocation (cold-start).
+        # Finish hooks are attempted at process exit.
+        self._init_hooks = []  # list[Callable]
+        self._finish_hooks = []  # list[Callable]
+
+        # Instantiate the handler and pass the app instance so the handler
+        # may run lifecycle hooks inside the event loop on cold-start.
+        self._handler_instance = Handler(registry=self.registry, settings=self.settings, app=self)
 
         # Expose the handler's main entrypoint method as a public attribute
         # for clean and simple use in the user's handler file.
         self.handler = self._handler_instance.handle
+
+    # --------------------------------------------------------------------------
+    # Lifecycle hook decorators
+    # --------------------------------------------------------------------------
+    def init(self) -> callable:
+        """
+        Decorator to register a function (async or sync) to be executed during the
+        handler's cold-start (inside the event loop on the first invocation).
+        Usage:
+            @app.init()
+            async def connect_db(): ...
+        """
+        def _register(func):
+            self._init_hooks.append(func)
+            return func
+        return _register
+
+    def finish(self) -> callable:
+        """
+        Decorator to register a function (async or sync) to be executed when the
+        process exits. Async functions will be awaited by running them inside a
+        temporary event loop in a background thread.
+        Usage:
+            @app.finish()
+            async def close_db(): ...
+        """
+        def _register(func):
+            self._finish_hooks.append(func)
+            return func
+        return _register

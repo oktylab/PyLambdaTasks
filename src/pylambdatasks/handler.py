@@ -45,6 +45,8 @@
 ################################################################################
 
 import asyncio
+import atexit
+import threading
 from typing import Dict, Any, Optional
 
 from .config import Settings
@@ -63,7 +65,7 @@ class Handler:
     ####################################################################
     # INSTANCE INITIALIZATION
     ####################################################################
-    def __init__(self, *, registry: TaskRegistry, settings: Settings):
+    def __init__(self, *, registry: TaskRegistry, settings: Settings, app: Optional[object] = None):
         """
         Initializes the handler with references to the application's core
         components.
@@ -71,9 +73,59 @@ class Handler:
         Args:
             registry: The configured TaskRegistry containing all discovered tasks.
             settings: The application's central configuration object.
+            app: The LambdaTasks application instance (optional). If provided,
+                 its registered init/finish hooks will be executed at the
+                 appropriate times.
         """
         self._registry = registry
         self._settings = settings
+        self._app = app
+
+        # Track whether we've already executed init hooks (cold-start handling).
+        self._cold_start = True
+
+        # Register finish hooks to run at process exit (execute async hooks by
+        # creating a temporary loop in a background thread).
+        if getattr(self._app, "_finish_hooks", None):
+            atexit.register(self._run_finish_hooks_at_exit)
+
+    # Helper to run a hook inside an event loop safely (supports async & sync).
+    async def _run_hook_maybe_async(self, hook):
+        if asyncio.iscoroutinefunction(hook):
+            await hook()
+        else:
+            # Run sync hooks off the event loop to avoid blocking.
+            await asyncio.to_thread(hook)
+
+    # Runs finish hooks at process exit by creating a temporary event loop
+    # inside a background thread so async coroutines can be awaited.
+    def _run_finish_hooks_at_exit(self):
+        finish_hooks = getattr(self._app, "_finish_hooks", []) or []
+        if not finish_hooks:
+            return
+
+        def _runner():
+            loop = asyncio.new_event_loop()
+            try:
+                async def _run_all():
+                    for h in finish_hooks:
+                        try:
+                            if asyncio.iscoroutinefunction(h):
+                                await h()
+                            else:
+                                # sync hook -> run in thread to avoid blocking the loop
+                                await asyncio.to_thread(h)
+                        except Exception:
+                            # Swallow exceptions during teardown
+                            pass
+                loop.run_until_complete(_run_all())
+            finally:
+                loop.close()
+
+        t = threading.Thread(target=_runner, daemon=True)
+        t.start()
+        # Wait briefly to allow teardown to progress; do not block indefinitely.
+        t.join(timeout=5)
 
     ####################################################################
     # MAIN HANDLER ENTRYPOINT
@@ -106,6 +158,17 @@ class Handler:
         """
         The core asynchronous logic for handling a task invocation.
         """
+        # If this is the cold-start, run registered init hooks inside the
+        # current event loop so async hooks are properly awaited.
+        if self._cold_start and getattr(self._app, "_init_hooks", None):
+            for hook in self._app._init_hooks:
+                try:
+                    await self._run_hook_maybe_async(hook)
+                except Exception:
+                    # Ignore init hook errors to avoid preventing handler startup.
+                    pass
+            self._cold_start = False
+
         # 1. Extract Task Name from the event payload.
         task_name = event.get("task_name")
         if not task_name:
@@ -117,11 +180,6 @@ class Handler:
             raise TaskNotFound(f"Task '{task_name}' is not registered.")
 
 
-        # print("==============================================================")
-        # print(f"Invoking task: {task_name}")
-        # print(f"Event payload: {event}")
-        # print(f"Context: {context}")
-        # print("==============================================================")
         # 3. Initialize the StateManager for this specific invocation.
         state_manager = StateManager(
             event=event,
@@ -152,13 +210,9 @@ class Handler:
 
         except Exception as e:
             # If any exception occurred, record the failure state.
-            # The exception is then re-raised to ensure the Lambda invocation
-            # itself is marked as failed by the AWS runtime.
-            # print(f"Task '{task_name}' failed with exception: {e}")
             await state_manager.set_failure_state(e)
             raise e
 
         finally:
-            # 5. Ensure any resources used by dependencies (like database
-            # connections) are properly cleaned up, regardless of success or failure.
+            # 5. Ensure any resources used by dependencies are properly cleaned up.
             await resolver.cleanup()
