@@ -124,7 +124,12 @@ class StateManager:
     # Public State Transition Methods
     # --------------------------------------------------------------------------
     async def set_progress_state(self) -> None:
-        """Transitions the task state to PROGRESS."""
+        """Transitions the task state to PROGRESS. No-op if Valkey not configured."""
+        # Fast path: if no Valkey configured, just update in-memory state and return.
+        if not self._settings.has_valkey:
+            self.current_state = TaskState.PROGRESS
+            return
+
         payload = {
             "status": TaskState.PROGRESS.value,
             "start_time_iso": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
@@ -136,7 +141,11 @@ class StateManager:
         await self._transition_state(TaskState.PROGRESS, payload)
 
     async def set_success_state(self, result: Any) -> None:
-        """Transitions the task state to SUCCESS."""
+        """Transitions the task state to SUCCESS. No-op if Valkey not configured."""
+        if not self._settings.has_valkey:
+            self.current_state = TaskState.SUCCESS
+            return
+
         duration = time.monotonic() - self._start_time
         payload = {
             "status": TaskState.SUCCESS.value,
@@ -147,7 +156,11 @@ class StateManager:
         # await self._cleanup_pending_state()
 
     async def set_failure_state(self, exception: Exception) -> None:
-        """Transitions the task state to FAILED."""
+        """Transitions the task state to FAILED. No-op if Valkey not configured."""
+        if not self._settings.has_valkey:
+            self.current_state = TaskState.FAILED
+            return
+
         duration = time.monotonic() - self._start_time
         payload = {
             "status": TaskState.FAILED.value,
@@ -158,7 +171,10 @@ class StateManager:
         # await self._cleanup_pending_state()
 
     async def update_metadata(self, metadata: Dict[str, Any]) -> None:
-        """Safely merges custom metadata into the task's record."""
+        """Safely merges custom metadata into the task's record. No-op if Valkey not configured."""
+        if not self._settings.has_valkey:
+            return
+
         valkey = await self._get_client()
         
         existing_metadata_str = await valkey.hget(self.key, "metadata")
@@ -172,16 +188,21 @@ class StateManager:
     # --------------------------------------------------------------------------
     async def _transition_state(self, new_state: TaskState, payload: Dict[str, Any]) -> None:
         """Atomically renames the key and updates the hash for a new state."""
-        valkey = await self._get_client()
+        # If Valkey is not configured, just update in-memory state.
+        if not self._settings.has_valkey:
+            self.current_state = new_state
+            return
+
+        valkey_client = await self._get_client()
         old_key = self.key
         self.current_state = new_state
         new_key = self.key
         
         expire_seconds = self._settings.valkey.task_key_expire_in_seconds
 
-        async with valkey.pipeline() as pipe:
+        async with valkey_client.pipeline() as pipe:
             # print(f"DEBUG_TIMESTAMP: {time.time_ns()} - Transitioning state from {old_key} to {new_key}")
-            if (old_key != self.key and await valkey.exists(old_key)) :
+            if (old_key != self.key and await valkey_client.exists(old_key)) :
                 pipe.rename(old_key, new_key)
             
             pipe.hset(new_key, mapping=payload)
@@ -189,6 +210,15 @@ class StateManager:
             await pipe.execute()
 
     async def _get_client(self):
+        """
+        Lazily initializes and returns the Valkey client.
+
+        Raises:
+            RuntimeError: If Valkey was not configured in Settings.
+        """
+        if not self._settings.has_valkey:
+            raise RuntimeError("Valkey is not configured for this application.")
+
         if self._valkey is None:
             self._valkey = get_valkey_client(self._settings.valkey)
             await self._valkey.ping()

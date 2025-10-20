@@ -10,11 +10,11 @@ app = LambdaTasks(
         aws_secret_access_key="test",
         endpoint_url="http://lambda:8080"
     ),
-    valkey_config=ValkeyConfig(
-        host="valkey",
-        port=6379,
-        task_key_expire_in_seconds=60,
-    )
+    # valkey_config=ValkeyConfig(
+    #     host="valkey",
+    #     port=6379,
+    #     task_key_expire_in_seconds=60,
+    # )
     # valkey_config=ValkeyConfig(
     #     host="valkey",
     #     port=6379,

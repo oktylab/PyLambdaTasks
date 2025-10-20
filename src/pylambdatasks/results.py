@@ -75,13 +75,18 @@ class AsyncResult:
     async def get(self) -> Dict[str, Any]:
         """
         Retrieves the current state and result of the task from the backend.
-        
-        If no record is found for the task, it is assumed to be in a
-        'PENDING' state.
 
-        Returns:
-            A dictionary representing the task's current state record.
+        If Valkey is not configured, returns a simple informative dict instead
+        of raising an exception.
         """
+        # If Valkey is not configured, we can't query backend — return a friendly result.
+        if not getattr(self._settings, "has_valkey", False):
+            return {
+                "status": "NO_VALKEY_CONFIGURED",
+                "task_id": self.task_id,
+                "note": "Valkey (result backend) is not configured for this application."
+            }
+
         valkey = await self._get_client()
 
         # Find the key for this task_id. The state part of the key is a wildcard.

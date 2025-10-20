@@ -202,9 +202,8 @@ class Settings:
         """
         Provides access to the Valkey configuration.
 
-        Raises:
-            ConfigurationError: If Valkey config was not provided during
-                                application initialization.
+        NOTE: This property continues to raise if Valkey is not configured.
+        Use the `has_valkey` property to detect if Valkey was supplied.
         """
         if self._valkey_config is None:
             raise ConfigurationError(
@@ -219,3 +218,13 @@ class Settings:
         Provides the default Lambda function name.
         """
         return self._default_lambda_function_name
+
+    @property
+    def has_valkey(self) -> bool:
+        """
+        Returns True if a ValkeyConfig was provided when the Settings object
+        was created; False otherwise.
+
+        Client code should check this before attempting to read/write state.
+        """
+        return self._valkey_config is not None
