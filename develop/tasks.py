@@ -1,6 +1,5 @@
 from typing import Annotated, Dict, Any
 from pylambdatasks import Depends
-from pylambdatasks.state import StateManager
 from handler import app
 import asyncio
 
@@ -13,7 +12,6 @@ UserContext = Annotated[Dict[str, str], Depends(get_user_context)]
 
 @app.task(name="ADD_NUMBERS")
 async def add_numbers(
-    self: StateManager, 
     a: int, 
     b: int
 ):
@@ -23,7 +21,6 @@ async def add_numbers(
 
 @app.task(name="PROCESS_DATA")
 async def process_data(
-    self: StateManager, 
     data: Dict[str, Any], 
     context: UserContext
 ):
@@ -40,15 +37,6 @@ async def process_data(
     print(f"Dispatching {CONCURRENT_TASKS} concurrent 'ADD_NUMBERS' tasks to the emulator...")
     results = await asyncio.gather(*tasks_to_run)
     print(results)
-
-
-
-    # Use the injected state manager to add custom metadata to the task record
-    await self.update_metadata({
-        "processed_keys": list(processed_data.keys()),
-        "processed_by": context['user_id'],
-        "result": results
-    })
     
     return {
         "processed_data": processed_data,

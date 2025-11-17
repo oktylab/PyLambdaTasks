@@ -1,44 +1,7 @@
-################################################################################
-#
-# PURPOSE:
-#
-#   This module defines the `TaskRegistry` class, a central component that acts
-#   as a collection or catalog for all tasks defined within an application. It
-#   maintains a mapping between a task's unique string name and its
-#   corresponding `Task` object.
-#
-# RESPONSIBILITIES:
-#
-#   1. Storage: It provides an in-memory dictionary to store registered tasks.
-#
-#   2. Registration: It exposes a `register` method, used by the `TaskDecorator`
-#      to add newly created `Task` objects to the collection.
-#
-#   3. Conflict Detection: During registration, it actively checks for duplicate
-#      task names and raises a specific `DuplicateTaskError`. This provides
-#      immediate, clear feedback to the developer if two tasks are accidentally
-#      given the same name, preventing silent overwrites and runtime ambiguity.
-#
-#   4. Lookup: It exposes a `get_task` method, used by the `Handler` to safely
-#      retrieve a `Task` object based on the name provided in an invocation
-#      event.
-#
-# ARCHITECTURE:
-#
-#   The `TaskRegistry` is designed as a pure data structure manager. It has no
-#   external dependencies on clients like AWS or Valkey and contains no complex
-#   business logic. It is instantiated once by the `LambdaTasks` application and
-#   is passed by reference to the components that need to interact with it
-#   (the decorator for writing, the handler for reading). This clean separation
-#   ensures its role is simple, predictable, and easy to test in isolation.
-#
-################################################################################
-
 import importlib
 import sys
 from typing import Dict, Optional, List
 
-# Forward reference for type hinting to avoid circular imports
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .task import Task

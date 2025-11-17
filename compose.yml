@@ -1,16 +1,4 @@
 services:
-
-  ############################################################
-  ############################################################
-  valkey:
-    image: valkey/valkey:7.2-alpine
-    container_name: pylambdatasks-valkey
-    ports:
-      - "6379:6379"
-    networks:
-      - pylambdatasks-net
-
-
   ############################################################
   ############################################################
   lambda:
@@ -24,7 +12,6 @@ services:
     networks:
       - pylambdatasks-net
 
-    # overide the default entrypoint and command to run local emulator
     entrypoint: ""
     command:
      - "pylambdatasks"
@@ -36,8 +23,6 @@ services:
     volumes:
       - ./develop:/var/task
       - ./src/pylambdatasks:/var/task/pylambdatasks
-    depends_on:
-      - valkey
 
 
   ############################################################
@@ -61,25 +46,6 @@ services:
     depends_on:
       - lambda
 
-
-  ############################################################
-  ############################################################
-  redisinsight:
-    image: redis/redisinsight:latest
-    container_name: redisinsight
-    restart: always
-    ports:
-      - "5540:5540"
-    networks:
-      - pylambdatasks-net
-
-    volumes:
-      - redisinsight_data:/data
-
 networks:
   pylambdatasks-net:
     driver: bridge
-
-
-volumes:
-  redisinsight_data:

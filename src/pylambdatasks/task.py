@@ -1,65 +1,15 @@
-################################################################################
-#
-# PURPOSE:
-#
-#   This module defines the `Task` class, which is the core object-oriented
-#   abstraction for a user-defined task. When a developer decorates a function
-#   with `@app.task`, that function is replaced by an instance of this `Task`
-#   class.
-#
-# RESPONSIBILITIES:
-#
-#   1. Encapsulation: It holds the user's original function, its unique name,
-#      and the critical configuration required to invoke it, such as the target
-#      `lambda_function_name`.
-#
-#   2. Client-Side API: It provides the public `.delay()` (asynchronous) and
-#      `.invoke()` (synchronous) methods. These methods are responsible for
-#      binding only the user-facing arguments into a payload and delegating
-#      invocation to the broker.
-#
-#   3. Executor-Side API: It provides the `.execute()` method, used exclusively
-#      by the `Handler` inside the Lambda environment, to run the original
-#      business logic with server-side arguments and injected dependencies.
-#
-# ARCHITECTURE:
-#
-#   The `Task` class intelligently separates the client's view of a function's
-#   signature from the executor's view. Upon initialization, it introspects the
-#   user's function and creates two signature objects: a complete signature for
-#   server-side execution, and a filtered "user-facing" signature that excludes
-#   any internally injected parameters (like `self` or `Depends`). This is the
-#   key to providing a clean client-side API (`.delay(a=1, b=2)`) while still
-#   supporting powerful server-side features like state management and
-#   dependency injection.
-#
-################################################################################
-
 import inspect, time
-from typing import Callable, Any, Dict, Annotated
+from typing import Callable, Any, Dict, Annotated, Optional
 from typing import get_type_hints, get_origin, get_args
+from .brokers import invoke_asynchronous, invoke_synchronous
 
-# Use TYPE_CHECKING to avoid circular imports at runtime
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .config import Settings
-    from .state import StateManager
-    from .results import AsyncResult
-    from .dependencies import Depends
 
-# ==============================================================================
-# Task Class
-# ==============================================================================
 
 class Task:
-    """
-    An object representing a remotely executable function, providing a clean
-    API for both invocation and execution.
-    """
-
-    # --------------------------------------------------------------------------
-    # Instance Initialization
-    # --------------------------------------------------------------------------
     def __init__(
         self,
         *,
@@ -86,35 +36,55 @@ class Task:
         # A filtered signature for client-side validation, excluding internal params.
         self._user_facing_signature = self._create_user_facing_signature()
 
+
+    @classmethod
+    def create_decorator(cls, registry, settings):
+        """
+        Creates the @app.task decorator factory.
+        """
+        def task_decorator(*, name: str, lambda_function_name: Optional[str] = None):
+            if not name or not isinstance(name, str):
+                raise TypeError("The task `name` must be a non-empty string.")
+            
+            def wrapper(func):
+                # Create Task instance (using cls, so no circular import needed)
+                task_instance = cls(
+                    func_to_execute=func,
+                    name=name,
+                    lambda_function_name=lambda_function_name,
+                    settings=settings,
+                )
+                # Register with the app
+                registry.register(task_instance)
+                return task_instance
+            
+            return wrapper
+        
+        return task_decorator
+    
     # --------------------------------------------------------------------------
     # Public Client API (Used for invoking the task)
     # --------------------------------------------------------------------------
-    async def delay(self, *args: Any, **kwargs: Any) -> 'AsyncResult':
+    async def delay(self, *args: Any, **kwargs: Any) -> Any:
         """
         Asynchronously invokes the task ('Event' invocation type).
-
-        This method dispatches the task for execution and immediately returns
-        an `AsyncResult` object.
         """
-        from .brokers import invoke_asynchronous
-        from .results import AsyncResult
 
         payload = self._build_payload(*args, **kwargs)
 
-        request_id = await invoke_asynchronous(
+        result = await invoke_asynchronous(
             function_name=self.lambda_function_name,
             payload=payload,
             settings=self._settings,
         )
 
-        return AsyncResult(task_id=request_id, settings=self._settings)
+        return result
 
     async def invoke(self, *args: Any, **kwargs: Any) -> Any:
         """
         Synchronously invokes the task and waits for the result
         ('RequestResponse' invocation type).
         """
-        from .brokers import invoke_synchronous
 
         payload = self._build_payload(*args, **kwargs)
 
@@ -134,7 +104,6 @@ class Task:
         *,
         event: Dict[str, Any],
         injected_dependencies: Dict[str, Any],
-        state_manager: 'StateManager'
     ) -> Any:
         """
         Executes the wrapped business logic with the provided event payload
@@ -142,9 +111,6 @@ class Task:
         """
         function_kwargs = self._get_function_args_from_event(event)
         final_kwargs = {**function_kwargs, **injected_dependencies}
-
-        if 'self' in self._full_signature.parameters:
-            final_kwargs['self'] = state_manager
 
         return await self.func_to_execute(**final_kwargs)
 
@@ -158,8 +124,6 @@ class Task:
 
         This is the crucial method that prevents TypeErrors on the client side.
         """
-        # We need to import here to avoid a circular dependency at the module level.
-        from .dependencies import Depends
         
         try:
             type_hints = get_type_hints(self.func_to_execute, include_extras=True)
@@ -198,7 +162,6 @@ class Task:
         serializable event payload.
         """
         try:
-            # This now correctly uses the filtered signature for client-side calls.
             bound_args = self._user_facing_signature.bind(*args, **kwargs)
             bound_args.apply_defaults()
         except TypeError as e:

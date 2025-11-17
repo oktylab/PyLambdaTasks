@@ -1,42 +1,5 @@
-################################################################################
-#
-# PURPOSE:
-#
-#   This module defines the primary command-line interface (CLI) for the
-#   PyLambdaTasks framework. It provides two distinct, explicit commands for
-#   developers: `run` for local development and `build` for creating production
-#   images.
-#
-# RESPONSIBILITIES:
-#
-#   1. Implement the `run` command, which is the dedicated entrypoint for local
-#      development. It loads the user's application and starts the Boto3-
-#      compatible emulator server with optional live-reloading via `watchfiles`.
-#
-#   2. Implement the `build` command, which orchestrates the `docker build`
-#      process to create a production-ready, ECR-compatible Lambda image.
-#      It targets a specific stage in the user's Dockerfile and streams the
-#      output for clear feedback.
-#
-# ARCHITECTURE:
-#
-#   The CLI is architected as a pure orchestration layer, decoupled from the
-#   library's core logic. It has no "smart" environment detection. Each command
-#   has a single, well-defined responsibility. This separation of concerns
-#   ensures the CLI is a simple, maintainable, and predictable interface. `run`
-#   delegates to `emulator.main` and `emulator.server`, while `build` delegates
-#   to the system's `docker` executable.
-#
-################################################################################
-
-import os
-import sys
-import subprocess
-from pathlib import Path
-
-import typer
+import os, sys, typer
 from rich.console import Console
-from typing import Optional
 
 try:
     from .emulator.main import load_app_from_handler_path
@@ -123,61 +86,8 @@ def run(
 # `build` Command (For Production Images)
 # ==============================================================================
 @app.command(help="Builds a production-ready Docker image for AWS Lambda.")
-def build(
-    tag: Optional[str] = typer.Option(
-        None, "--tag", "-t",
-        help="The tag for the Docker image, e.g., 'my-app:latest'",
-        rich_help_panel="Image Options"
-    ),
-    target: Optional[str] = typer.Option(
-        None, "--target",
-        help="The build target stage in the Dockerfile.",
-        rich_help_panel="Image Options"
-    ),
-    dockerfile: Path = typer.Option(
-        "Dockerfile", "--file", "-f",
-        help="Path to the Dockerfile.",
-        rich_help_panel="Image Options"
-    ),
-):
-    """
-    Constructs and executes a `docker build` command, targeting the 'lambda'
-    stage by default, to create a production image.
-    """
-    if not dockerfile.exists():
-        console.print(f"[bold red]Error:[/bold red] Dockerfile not found at '{dockerfile}'")
-        raise typer.Exit(code=1)
-
-    if tag:
-        console.print(f"[cyan]Building Lambda image with tag: [bold]{tag}[/bold][/cyan]")
-    else:
-        console.print("[cyan]Building Lambda image[/cyan]")
-
-    command = [
-        "docker", "build",
-        ".",
-        "-f", str(dockerfile),
-    ]
-
-    if target:
-        command.extend(["--target", target])
-
-    if tag:
-        command.extend(["-t", tag])
-
-    try:
-        process = subprocess.run(
-            command, check=True, text=True,
-            stdout=sys.stdout, stderr=sys.stderr
-        )
-        console.print(f"\n[bold green]Image '{tag}' built successfully![/bold green]")
-
-    except FileNotFoundError:
-        console.print("[bold red]Error:[/bold red] 'docker' command not found. Is Docker installed and in your PATH?")
-        raise typer.Exit(code=1)
-    except subprocess.CalledProcessError:
-        console.print(f"\n[bold red]Docker build failed.[/bold red]")
-        raise typer.Exit(code=1)
+def build():
+    raise NotImplementedError("The 'build' command is not yet implemented.")
 
 # ==============================================================================
 # Main Execution Trigger
