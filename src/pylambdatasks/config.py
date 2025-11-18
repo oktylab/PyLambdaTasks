@@ -15,9 +15,9 @@ class Settings:
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
         endpoint_url: Optional[str] = None,
-        connect_timeout: int = 10,
-        read_timeout: int = 60,
-        total_max_attempts: int = 5,
+        connect_timeout: Optional[int] = None,
+        read_timeout: Optional[int] = None,
+        total_max_attempts: Optional[int] = None,
     ):
         self.default_lambda_function_name = default_lambda_function_name
         self.region_name = region_name
@@ -31,13 +31,22 @@ class Settings:
 
     def get_boto_config(self) -> Dict[str, Any]:
         """
-        Returns a dictionary formatted for the botocore.config.Config object.
+        Returns a dictionary formatted for the botocore.config.Config object
         """
-        return {
-            "connect_timeout": self.connect_timeout,
-            "read_timeout": self.read_timeout,
-            "retries": {
-                'total_max_attempts': self.total_max_attempts,
-                'mode': 'standard'
-            },
-        }
+        config = {}
+        
+        if self.connect_timeout is not None:
+            config["connect_timeout"] = self.connect_timeout
+
+        if self.read_timeout is not None:
+            config["read_timeout"] = self.read_timeout
+            
+        retries = {}
+        if self.total_max_attempts is not None:
+            retries['total_max_attempts'] = self.total_max_attempts
+            retries['mode'] = 'standard'
+            
+        if retries:
+            config["retries"] = retries
+            
+        return config

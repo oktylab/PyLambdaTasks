@@ -25,9 +25,9 @@ class LambdaTasks:
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
         endpoint_url: Optional[str] = None,
-        connect_timeout: int = 10,
-        read_timeout: int = 60,
-        total_max_attempts: int = 5,
+        connect_timeout: Optional[int] = None,
+        read_timeout: Optional[int] = None,
+        total_max_attempts: Optional[int] = None,
     ):
         self.settings = Settings(
             default_lambda_function_name=default_lambda_function_name,

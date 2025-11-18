@@ -34,7 +34,7 @@ async def process_data(
     for i in range(CONCURRENT_TASKS):
         result = await add_numbers.invoke(a=i, b=i*2)
         print(f"Result of ADD_NUMBERS task {i}: {result}")
-        await asyncio.sleep(1)
+        await asyncio.sleep(10)
 
     tasks_to_run = [
         add_numbers.invoke(a=5, b=10)
