@@ -50,7 +50,8 @@ class TaskRegistry:
         """
         if self._discovery_done:
             return
-
+        self._tasks.clear() 
+        
         for module_path in self._task_modules:
             try:
                 # Reload module if already imported to support local dev reloading

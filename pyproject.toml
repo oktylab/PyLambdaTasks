@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pylambdatasks"
-version = "0.1.4"
+version = "0.1.5"
 description = "A library to simplify creating AWS Lambda images and managing multiple tasks within one image."
 
 authors = [
@@ -30,8 +30,6 @@ keywords = [
     "serverless", 
     "tasks", 
     "async", 
-    "valkey", 
-    "redis", 
     "boto3"
 ]
 
@@ -50,7 +48,6 @@ classifiers = [
 
 dependencies = [
     "boto3",
-    "valkey",
     "awslambdaric"
 ]
 

@@ -1,9 +1,10 @@
-from typing import List, Optional
-
+import asyncio, atexit, threading
+from typing import List, Optional, Dict, Any, Callable
 from .config import Settings
 from .task import Task
-from .handler import Handler
 from .registry import TaskRegistry
+from .exceptions import TaskNotFound, InvalidEventPayload
+from .dependencies import DependencyResolver
 
 
 class LambdaTasks:
@@ -45,31 +46,112 @@ class LambdaTasks:
 
         self.task = Task.create_decorator(registry=self.registry, settings=self.settings)
 
-        # Lifecycle hooks storage
-        # Init hooks run during the first handler invocation (cold-start).
-        # Finish hooks are attempted at process exit.
-        self._init_hooks = []  # list[Callable]
-        self._finish_hooks = []  # list[Callable]
 
-        # Instantiate the handler and pass the app instance so the handler
-        # may run lifecycle hooks inside the event loop on cold-start.
-        self._handler_instance = Handler(registry=self.registry, settings=self.settings, app=self)
+        # Container lifecycle hooks
+        self._startup_hooks: List[Callable] = []
+        self._shutdown_hooks: List[Callable] = []
 
-        # Expose the handler's main entrypoint method as a public attribute
-        # for clean and simple use in the user's handler file.
-        self.handler = self._handler_instance.handle
+        # Invocation lifecycle hooks
+        self._before_request_hooks: List[Callable] = []
+        self._after_request_hooks: List[Callable] = []
+        
+        # Track cold starts for the @on_startup hook
+        self._cold_start = True
+
+        # Register the shutdown hooks to run when the Python process exits.
+        atexit.register(self._run_shutdown_hooks)
+
+        # Expose the handler method
+        self.handler = self.handle
 
     # --------------------------------------------------------------------------
     # Lifecycle hook decorators
     # --------------------------------------------------------------------------
-    def init(self) -> callable:
-        def register(func):
-            self._init_hooks.append(func)
+    def on_startup(self) -> Callable:
+        """Decorator to register a function to run only on cold-start."""
+        def register(func: Callable) -> Callable:
+            self._startup_hooks.append(func)
             return func
         return register
 
-    def finish(self) -> callable:
-        def register(func):
-            self._finish_hooks.append(func)
+    def on_shutdown(self) -> Callable:
+        """Decorator to register a function to run when the Lambda container shuts down."""
+        def register(func: Callable) -> Callable:
+            self._shutdown_hooks.append(func)
             return func
         return register
+        
+    def before_request(self) -> Callable:
+        """Decorator to register a function to run before each invocation."""
+        def register(func: Callable) -> Callable:
+            self._before_request_hooks.append(func)
+            return func
+        return register
+
+    def after_request(self) -> Callable:
+        """Decorator to register a function to run after each invocation."""
+        def register(func: Callable) -> Callable:
+            self._after_request_hooks.append(func)
+            return func
+        return register
+
+    # --------------------------------------------------------------------------
+    # Hook Runners
+    # --------------------------------------------------------------------------
+    async def _run_hooks(self, hooks: List[Callable]):
+        """Executes a list of sync or async hooks concurrently."""
+        if not hooks: return
+        tasks = [
+            hook() if asyncio.iscoroutinefunction(hook) else asyncio.to_thread(hook)
+            for hook in hooks
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _run_shutdown_hooks(self):
+        """
+        Special synchronous runner for atexit. It creates its own event loop
+        in a separate thread to run async shutdown hooks.
+        """
+        if not self._shutdown_hooks: return
+
+        def runner():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._run_hooks(self._shutdown_hooks))
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=runner, daemon=True)
+        thread.start()
+        thread.join(timeout=5)
+
+    ####################################################################
+    # MAIN HANDLER LOGIC
+    ####################################################################
+    def handle(self, event: Dict[str, Any], context: Optional[object]) -> Any:
+        return asyncio.run(self._handle_async(event, context))
+
+    async def _handle_async(self, event: Dict[str, Any], context: Optional[object]) -> Any:
+        if self._cold_start:
+            await self._run_hooks(self._startup_hooks)
+            self._cold_start = False
+
+        resolver = DependencyResolver()
+        try:
+            task_name = event.get("task_name")
+            if not task_name:
+                raise InvalidEventPayload("Event is missing the required 'task_name' key.")
+
+            task = self.registry.get_task(task_name)
+            if not task:
+                raise TaskNotFound(f"Task '{task_name}' is not registered.")
+
+            await self._run_hooks(self._before_request_hooks)
+            injected_kwargs = await resolver.resolve_dependencies(task.func_to_execute)
+            result = await task.execute(event=event, injected_dependencies=injected_kwargs)
+            return result
+
+        finally:
+            await self._run_hooks(self._after_request_hooks)
+            await resolver.cleanup()

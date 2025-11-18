@@ -3,7 +3,7 @@ from typing import Dict, Any
 from botocore.config import Config
 
 from .config import Settings
-from .utils.json import serialize_to_json_str
+from .utils import serialize_to_json_str
 from .exceptions import LambdaExecutionError
 
 

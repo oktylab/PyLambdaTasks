@@ -1,4 +1,4 @@
-import inspect, time
+import inspect
 from typing import Callable, Any, Dict, Annotated, Optional
 from typing import get_type_hints, get_origin, get_args
 from .brokers import invoke_asynchronous, invoke_synchronous
@@ -169,7 +169,6 @@ class Task:
 
         payload = bound_args.arguments
         payload['task_name'] = self.name
-        payload['__pylambdatasks_dispatch_time'] = time.time() 
         return payload
 
     def _get_function_args_from_event(self, event: Dict[str, Any]) -> Dict[str, Any]:

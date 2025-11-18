@@ -1,13 +1,33 @@
-import asyncio
-import uvicorn
-from fastapi import FastAPI
+import asyncio, uvicorn
+from fastapi import FastAPI, Body
+from handler import app 
 from pydantic import BaseModel
 from typing import Any, Dict
-
 from tasks import add_numbers, process_data
+
+
 
 api = FastAPI(title="PyLambdaTasks Client API")
 
+
+@api.post("/tasks/{task_name}")
+async def invoke_task_generic(
+    task_name: str,
+    invocation_type: str,
+    payload: Dict[str, Any] = Body(...)
+):
+    task = app.registry.get_task(task_name)
+
+    if invocation_type == "RequestResponse":
+        result = await task.invoke(**payload)
+        return result
+    else:
+        result = await task.delay(**payload)
+        return result
+
+
+#####################################################################################################
+#####################################################################################################
 class AddPayload(BaseModel):
     a: int
     b: int
@@ -17,9 +37,6 @@ class ProcessPayload(BaseModel):
 
 @api.post("/invoke/add", status_code=202)
 async def invoke_add_task(payload: AddPayload):
-    # result_handle = await add_numbers.delay(a=payload.a, b=payload.b)
-    # return {"message": "Task dispatched.", "task_id": result_handle.task_id}
-
     result = await add_numbers.invoke(a=payload.a, b=payload.b)
     print(result)
     return result

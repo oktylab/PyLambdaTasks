@@ -9,15 +9,22 @@ app = LambdaTasks(
 )
 
 
-
-@app.init()
+@app.on_startup()
 async def on_startup():
-    print("Lambda function is starting up...")
+    print("✅ (Cold Start) Lambda function is starting up...")
 
-
-@app.finish()
+@app.on_shutdown()
 async def on_shutdown():
-    print("Lambda function is shutting down...")
+    print("❌ (Container Shutdown) Lambda function is shutting down...")
 
+@app.before_request()
+async def before_request():
+    print("-> Invocation started.")
+
+@app.after_request()
+async def after_request():
+    print("<- Invocation finished.")
+
+    
 
 handler = app.handler
