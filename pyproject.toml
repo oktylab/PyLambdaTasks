@@ -55,8 +55,6 @@ dependencies = [
 cli = [
     "typer",
     "rich",
-    "watchfiles",
-    "aiohttp"
 ]
 
 
