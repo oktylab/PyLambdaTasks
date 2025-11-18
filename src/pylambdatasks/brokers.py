@@ -74,16 +74,10 @@ async def invoke_asynchronous(
             Payload=payload_bytes,
         )
 
-        if response.get('FunctionError'):
-            error_payload_bytes = response['Payload'].read()
-            error_details = error_payload_bytes.decode('utf-8')
-            raise LambdaExecutionError(
-                f"Lambda function '{function_name}' failed during execution: {error_details}"
-            )
-
-        result_payload_bytes = response['Payload'].read()
-        return json.loads(result_payload_bytes.decode('utf-8'))
-
+        if 'Payload' in response:
+            del response['Payload']
+            
+        return response
 
     result = await asyncio.to_thread(_blocking_invoke)
     return result
