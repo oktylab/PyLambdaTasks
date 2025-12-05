@@ -161,9 +161,12 @@ class Task:
         Binds provided arguments to the USER-FACING signature to create a
         serializable event payload.
         """
+        valid_params = self._user_facing_signature.parameters.keys()
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+
         try:
-            bound_args = self._user_facing_signature.bind(*args, **kwargs)
-            bound_args.apply_defaults()
+            bound_args = self._user_facing_signature.bind(*args, **filtered_kwargs)
+
         except TypeError as e:
             raise TypeError(f"Argument mismatch for task '{self.name}': {e}") from e
 
