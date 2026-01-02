@@ -2,7 +2,7 @@ import inspect
 from typing import Callable, Any, Dict, Annotated, Optional
 from typing import get_type_hints, get_origin, get_args
 from .brokers import invoke_asynchronous, invoke_synchronous
-
+from .dependencies import get_dependant
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -31,11 +31,10 @@ class Task:
             
         self._settings = settings
 
-        # The full signature, used by the executor for dependency injection.
+        self.dependant = get_dependant(func_to_execute)
         self._full_signature = inspect.signature(self.func_to_execute)
-        # A filtered signature for client-side validation, excluding internal params.
+        # Pass the pre-analyzed dependant to the signature filter
         self._user_facing_signature = self._create_user_facing_signature()
-
 
     @classmethod
     def create_decorator(cls, registry, settings):
@@ -118,43 +117,14 @@ class Task:
     # Internal Helper Methods
     # --------------------------------------------------------------------------
     def _create_user_facing_signature(self) -> inspect.Signature:
-        """
-        Introspects the original function and creates a new signature that
-        excludes any internally injected parameters ('self' or Depends).
-
-        This is the crucial method that prevents TypeErrors on the client side.
-        """
-        
-        try:
-            type_hints = get_type_hints(self.func_to_execute, include_extras=True)
-        except (TypeError, NameError):
-            type_hints = {}
-        
         user_facing_params = []
         for param in self._full_signature.parameters.values():
-            # Rule 1: Exclude the special 'self' parameter for state management.
             if param.name == 'self':
-                continue
-            
-            # Rule 2: Exclude any parameter marked with our 'Depends' marker.
-            is_dependency = False
-            hint = type_hints.get(param.name)
-            
-            # Using get_origin and get_args for robust type inspection.
-            # This correctly identifies Annotated types even when aliased.
-            if hint and get_origin(hint) is Annotated:
-                # The first argument of Annotated is the type, the rest is metadata.
-                for meta in get_args(hint)[1:]:
-                    # Our Depends() function just returns the callable.
-                    if callable(meta):
-                        is_dependency = True
-                        break
-            
-            if not is_dependency:
+                continue            
+            if param.name not in self.dependant.dependencies:
                 user_facing_params.append(param)
                 
         return self._full_signature.replace(parameters=user_facing_params)
-
 
     def _build_payload(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
         """

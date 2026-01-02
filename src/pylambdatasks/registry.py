@@ -1,11 +1,10 @@
-import importlib
-import sys
+import importlib, logging
 from typing import Dict, Optional, List
-
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .task import Task
 
+logger = logging.getLogger("pylambdatasks.registry")
 
 # ==============================================================================
 # Custom Exceptions
@@ -54,12 +53,10 @@ class TaskRegistry:
         
         for module_path in self._task_modules:
             try:
-                # Reload module if already imported to support local dev reloading
-                if module_path in sys.modules:
-                    importlib.reload(sys.modules[module_path])
-                else:
-                    importlib.import_module(module_path)
+                logger.info(f"Discovering tasks in module: {module_path}")
+                importlib.import_module(module_path)
             except ImportError as e:
+                logger.error(f"Failed to import task module: {module_path}")
                 raise ImportError(f"Could not import task module '{module_path}'.") from e
         
         self._discovery_done = True

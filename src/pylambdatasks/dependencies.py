@@ -1,128 +1,128 @@
 import inspect
 import typing
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Callable, Any, Dict, Optional, Annotated
+from typing import Callable, Any, Dict, Optional, Annotated, List, Union, get_origin, get_args
 
 # ==============================================================================
-# Public API
 # ==============================================================================
 
-def Depends(dependency: Callable[..., Any]) -> Any:
+class Depends:
+    def __init__(self, dependency: Optional[Callable[..., Any]] = None, *, use_cache: bool = True):
+        self.dependency = dependency
+        self.use_cache = use_cache
+
+    def __repr__(self) -> str:
+        dep = getattr(self.dependency, '__name__', 'None')
+        return f"Depends({dep})"
+
+def DependsFactory(dependency: Optional[Callable[..., Any]] = None, *, use_cache: bool = True) -> Any:
+    """Factory function to maintain the Depends() syntax."""
+    return Depends(dependency=dependency, use_cache=use_cache)
+
+# ==============================================================================
+# ==============================================================================
+
+class Dependant:
+    def __init__(
+        self, 
+        call: Callable[..., Any], 
+        name: Optional[str] = None, 
+        is_generator: bool = False
+    ):
+        self.call = call
+        self.name = name
+        self.is_generator = is_generator
+        # Map of parameter_name -> Dependant object
+        self.dependencies: Dict[str, "Dependant"] = {}
+
+# ==============================================================================
+# ==============================================================================
+
+def get_dependant(call: Callable[..., Any], name: Optional[str] = None) -> Dependant:
     """
-    Factory function used as a dependency marker in type hints.
-    It doesn't do anything at runtime other than hold a reference to the
-    dependency callable.
+    Recursively analyzes a function and builds a tree of Dependant objects.
+    This replaces runtime typing.get_type_hints calls.
     """
-    return dependency
+    is_gen = inspect.isasyncgenfunction(call) or inspect.isgeneratorfunction(call)
+    dependant = Dependant(call=call, name=name, is_generator=is_gen)
 
+    try:
+        # Resolve hints once during analysis
+        type_hints = typing.get_type_hints(call, include_extras=True)
+    except (TypeError, NameError):
+        type_hints = {}
+
+    for param_name, hint in type_hints.items():
+        dep_info = _extract_depends(hint)
+        if dep_info and dep_info.dependency:
+            # Recursively build the tree for this sub-dependency
+            sub_dependant = get_dependant(call=dep_info.dependency, name=param_name)
+            dependant.dependencies[param_name] = sub_dependant
+
+    return dependant
+
+def _extract_depends(hint: Any) -> Optional[Depends]:
+    """Helper to find Depends() in Annotated types."""
+    if get_origin(hint) is Annotated:
+        for arg in get_args(hint)[1:]:
+            if isinstance(arg, Depends):
+                return arg
+            # Support the old way: Annotated[T, Depends(func)] where Depends is just a callable
+            if callable(arg) and not isinstance(arg, type):
+                return Depends(dependency=arg)
+    return None
 
 # ==============================================================================
-# Core Resolver Class
 # ==============================================================================
 
 class DependencyResolver:
     """
-    Resolves and manages the lifecycle of dependencies for a single task execution.
+    Resolves a pre-built Dependant tree. 
+    NO get_type_hints calls happen here.
     """
 
-    ####################################################################
-    # INSTANCE INITIALIZATION
-    ####################################################################
     def __init__(self):
-        # Cache to store the results of resolved dependencies for the duration
-        # of a single task run. This ensures a dependency is only executed once.
         self._dependency_cache: Dict[Callable[..., Any], Any] = {}
-        # An exit stack to manage the teardown of generator-based dependencies.
         self._exit_stack = AsyncExitStack()
 
-    ####################################################################
-    # PUBLIC METHODS
-    ####################################################################
-    async def resolve_dependencies(self, func: Callable[..., Any]) -> Dict[str, Any]:
+    async def resolve(self, dependant: Dependant) -> Dict[str, Any]:
         """
-        Resolves all dependencies for a given function and returns them as a
-        dictionary of keyword arguments.
-
-        Args:
-            func: The function (e.g., a task) whose dependencies need to be resolved.
-
-        Returns:
-            A dictionary mapping parameter names to their resolved dependency values.
+        Resolves sub-dependencies for a Dependant and returns kwargs.
         """
-        injected_kwargs: Dict[str, Any] = {}
+        values: Dict[str, Any] = {}
         
-        # Use get_type_hints to correctly resolve forward-referenced type hints.
-        try:
-            type_hints = typing.get_type_hints(func, include_extras=True)
-        except (TypeError, NameError):
-            # Fallback for environments where type hints might not be resolvable.
-            type_hints = {}
+        for param_name, sub_dep in dependant.dependencies.items():
+            resolved_value = await self._solve(sub_dep)
+            values[param_name] = resolved_value
+            
+        return values
 
-        for param_name, hint in type_hints.items():
-            dependency_callable = self._get_dependency_from_hint(hint)
-            if dependency_callable:
-                resolved_value = await self._resolve_dependency_graph(dependency_callable)
-                injected_kwargs[param_name] = resolved_value
+    async def _solve(self, dependant: Dependant) -> Any:
+        call = dependant.call
         
-        return injected_kwargs
+        # FastAPI-style caching for the duration of the request
+        if call in self._dependency_cache:
+            return self._dependency_cache[call]
+
+        # Solve sub-dependencies recursively
+        sub_values = await self.resolve(dependant)
+
+        if dependant.is_generator:
+            # Handle sync/async generators
+            if inspect.isasyncgenfunction(call):
+                cm = asynccontextmanager(call)(**sub_values)
+            else:
+                # Wrap sync generator for async exit stack
+                cm = asynccontextmanager(asynccontextmanager(call))(**sub_values)
+            
+            value = await self._exit_stack.enter_async_context(cm)
+        elif inspect.iscoroutinefunction(call):
+            value = await call(**sub_values)
+        else:
+            value = call(**sub_values)
+
+        self._dependency_cache[call] = value
+        return value
 
     async def cleanup(self) -> None:
-        """
-        Cleans up any resources managed by the resolver, such as exiting
-        from generator-based dependencies.
-        """
         await self._exit_stack.aclose()
-
-    ####################################################################
-    # INTERNAL LOGIC
-    ####################################################################
-    async def _resolve_dependency_graph(self, dep_callable: Callable[..., Any]) -> Any:
-        """
-        Recursively resolves a single dependency and its sub-dependencies.
-        """
-        # If this dependency has already been resolved, return the cached value.
-        if dep_callable in self._dependency_cache:
-            return self._dependency_cache[dep_callable]
-
-        # Resolve sub-dependencies for the current dependency first.
-        sub_dependencies = await self.resolve_dependencies(dep_callable)
-
-        # Execute the dependency callable with its own resolved dependencies.
-        if inspect.isasyncgenfunction(dep_callable):
-            # This dependency is a raw async generator. We need to wrap it to make
-            # it compatible with the async context manager protocol.
-            
-            # 1. Wrap the generator function with the @asynccontextmanager logic.
-            cm_factory = asynccontextmanager(dep_callable)
-            
-            # 2. Create an instance of the context manager with its dependencies.
-            cm_instance = cm_factory(**sub_dependencies)
-            
-            # 3. Now, enter the properly wrapped context manager into the exit stack.
-            resolved_value = await self._exit_stack.enter_async_context(cm_instance)
-
-        elif inspect.iscoroutinefunction(dep_callable):
-            # For async functions, await the result.
-            resolved_value = await dep_callable(**sub_dependencies)
-        else:
-            # For regular functions, call it directly.
-            resolved_value = dep_callable(**sub_dependencies)
-
-        # Cache the result before returning.
-        self._dependency_cache[dep_callable] = resolved_value
-        return resolved_value
-
-    def _get_dependency_from_hint(self, hint: Any) -> Optional[Callable[..., Any]]:
-        """
-        Parses a type hint to find a `Depends` marker.
-        Supports `Annotated[SomeType, Depends(my_func)]`.
-        """
-        if typing.get_origin(hint) is Annotated:
-            # The first argument of Annotated is the type, the rest is metadata.
-            for meta in typing.get_args(hint)[1:]:
-                # We check if the metadata *is* a callable that was wrapped
-                # by our `Depends` function. Since `Depends` just returns the
-                # function, we can check for callability.
-                if callable(meta):
-                    return meta
-        return None

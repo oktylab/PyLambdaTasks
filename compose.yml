@@ -4,7 +4,7 @@ services:
   lambda:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
       target: base
     container_name: pylambdatasks-lambda
     ports:
@@ -32,7 +32,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
       target: base
     container_name: pylambdatasks-api
     ports:

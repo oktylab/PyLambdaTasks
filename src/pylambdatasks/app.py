@@ -1,11 +1,11 @@
-import asyncio, atexit, threading
+import asyncio, atexit, threading, time, logging
 from typing import List, Optional, Dict, Any, Callable
 from .config import Settings
 from .task import Task
 from .registry import TaskRegistry
 from .exceptions import TaskNotFound, InvalidEventPayload
 from .dependencies import DependencyResolver
-
+logger = logging.getLogger("pylambdatasks")
 
 class LambdaTasks:
     """
@@ -133,24 +133,52 @@ class LambdaTasks:
         return asyncio.run(self._handle_async(event, context))
 
     async def _handle_async(self, event: Dict[str, Any], context: Optional[object]) -> Any:
+        task_name = event.get("task_name", "UNKNOWN")
+        
+        # Injecting task_name into the logger extra so your JsonFormatter sees it
+        extra = {"task_name": task_name, "lambda_event": event}
+        
+        logger.info(f"Task {task_name} execution started.", extra=extra)
+        start_time = time.perf_counter()
+
         if self._cold_start:
+            logger.debug("Cold start detected, running startup hooks.")
             await self._run_hooks(self._startup_hooks)
             self._cold_start = False
 
         resolver = DependencyResolver()
         try:
-            task_name = event.get("task_name")
-            if not task_name:
-                raise InvalidEventPayload("Event is missing the required 'task_name' key.")
-
+            # Task retrieval
             task = self.registry.get_task(task_name)
             if not task:
+                logger.error(f"Task '{task_name}' not found in registry.", extra=extra)
                 raise TaskNotFound(f"Task '{task_name}' is not registered.")
 
             await self._run_hooks(self._before_request_hooks)
-            injected_kwargs = await resolver.resolve_dependencies(task.func_to_execute)
+
+            # Dependency resolution
+            # (Note: Passing the 'task' object here to use the caching fix we discussed)
+            injected_kwargs = await resolver.resolve(task.dependant)
+            
+            # Execute
             result = await task.execute(event=event, injected_dependencies=injected_kwargs)
+            
+            duration = time.perf_counter() - start_time
+            extra["duration_seconds"] = round(duration, 4)
+            
+            logger.info(f"Task {task_name} succeeded.", extra=extra)
             return result
+
+        except Exception as e:
+            duration = time.perf_counter() - start_time
+            extra["duration_seconds"] = round(duration, 4)
+            
+            # This triggers your AppLogger.exception -> which uses _log_and_return_id
+            # and your JsonFormatter will automatically extract the full traceback.
+            logger.exception(f"Task {task_name} failed after {extra['duration_seconds']}s", extra=extra, exc_info=e)
+            
+            # Re-raise so Lambda/Step Functions detect the failure
+            raise e
 
         finally:
             await self._run_hooks(self._after_request_hooks)

@@ -1,9 +1,10 @@
-import os, uuid, json, traceback, sys, importlib
+import os, uuid, json, traceback, sys, importlib, logging
 from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from .app import LambdaTasks
+logger = logging.getLogger("pylambdatasks.emulator")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -71,6 +72,7 @@ async def invoke_lambda(function_name: str, request: Request):
     try:        
         handler_result = await pylambdatasks_app._handle_async(event=event_payload, context=context)
     except Exception as e:
+        logger.error(f"Emulator caught exception in {function_name}")
         handler_exception = e
     finally:
         os.environ.clear()
