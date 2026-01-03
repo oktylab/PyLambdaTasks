@@ -1,4 +1,4 @@
-import asyncio, atexit, threading, time
+import asyncio, atexit, threading, time, sys, os
 from typing import List, Optional, Dict, Any, Callable
 from .config import Settings
 from .task import Task
@@ -201,3 +201,6 @@ class LambdaTasks:
             await self._run_hooks(self._after_request_hooks, "AFTER_REQUEST")
             await resolver.cleanup()
             logger.info(f"Handler: --- Invocation finished for '{task_name}'")
+            if os.environ.get("PYLAMBDATASKS_FORCE_EXIT") == "1":
+                logger.info("WARNING: PYLAMBDATASKS_FORCE_EXIT is set. Forcing process exit.")
+                sys.exit(0)
