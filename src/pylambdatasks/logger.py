@@ -12,6 +12,8 @@ if os.environ.get("PYLAMBDATASKS_DEBUG") == "1":
         logger.handlers.clear()
         
     logger.addHandler(handler)
-    logger.propagate = False
+    logger.propagate = False 
 else:
     logger.addHandler(logging.NullHandler())
+    logger.propagate = False 
+    logger.setLevel(logging.CRITICAL)
