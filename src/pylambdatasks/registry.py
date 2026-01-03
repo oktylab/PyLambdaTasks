@@ -1,98 +1,78 @@
-import importlib, logging
+import importlib
 from typing import Dict, Optional, List
 from typing import TYPE_CHECKING
+from .exceptions import DuplicateTaskError
+from .logger import logger
+
 if TYPE_CHECKING:
     from .task import Task
 
-logger = logging.getLogger("pylambdatasks.registry")
-
-# ==============================================================================
-# Custom Exceptions
-# ==============================================================================
-
-class DuplicateTaskError(Exception):
-    """
-    Raised when attempting to register a task with a name that is already in use.
-    """
-    pass
-
-
-# ==============================================================================
-# Task Registry Class
-# ==============================================================================
 
 class TaskRegistry:
-    """
-
-    Manages the collection of all tasks available to the application.
-    """
 
     ####################################################################
-    # INSTANCE INITIALIZATION
     ####################################################################
     def __init__(self, task_modules: List[str]):
-        """
-        Initializes a new, empty TaskRegistry.
-        """
         self._tasks: Dict[str, 'Task'] = {}
         self._tasks: Dict[str, 'Task'] = {}
         self._task_modules = task_modules
         self._discovery_done = False
+        logger.info(f"Registry: Initialized with {len(task_modules)} target modules.")
 
 
-
-
+    ####################################################################
+    ####################################################################
     def _discover(self) -> None:
-        """
-        Imports all configured task modules to trigger decorator registration.
-        This method is idempotent and should only run once.
-        """
+        logger.info("Discovery: Starting automated task discovery...")
         if self._discovery_done:
+            logger.info("Discovery: Tasks already discovered, skipping re-import.")
             return
+
         self._tasks.clear() 
         
         for module_path in self._task_modules:
             try:
-                logger.info(f"Discovering tasks in module: {module_path}")
+                logger.info(f"Discovery: Attempting to import module '{module_path}'")
                 importlib.import_module(module_path)
+                logger.info(f"Discovery: Successfully imported and scanned '{module_path}'")
             except ImportError as e:
-                logger.error(f"Failed to import task module: {module_path}")
+                logger.error(f"Discovery Critical: Failed to import '{module_path}'. Error: {e}", exc_info=True)
                 raise ImportError(f"Could not import task module '{module_path}'.") from e
         
         self._discovery_done = True
+        logger.info(f"Discovery: Complete. Total unique tasks registered: {len(self._tasks)}")
+
 
     ####################################################################
-    # PUBLIC METHODS
     ####################################################################
     def register(self, task: 'Task') -> None:
-        """
-        Adds a Task object to the registry.
-
-        Args:
-            task: The `Task` instance to be registered.
-
-        Raises:
-            DuplicateTaskError: If a task with the same name already exists
-                                in the registry.
-        """
         task_name = task.name
+        lambda_target = task.lambda_function_name
+
+        logger.info(f"Registry: Registering task '{task_name}' -> target Lambda: '{lambda_target}'")
+
         if task_name in self._tasks:
-            raise DuplicateTaskError(
-                f"A task with the name '{task_name}' has already been registered. "
-                "Task names must be unique."
+            existing_task = self._tasks[task_name]
+            logger.error(
+                f"Registry Conflict: Failed to register '{task_name}'. "
+                f"Name already assigned to function '{existing_task.func_to_execute.__name__}'"
             )
+            raise DuplicateTaskError(f"A task with the name '{task_name}' has already been registered. Task names must be unique.")
 
         self._tasks[task_name] = task
+        logger.info(f"Registry: Task '{task_name}' registered successfully. Current Registry Size: {len(self._tasks)}")
 
+    ####################################################################
+    ####################################################################
     def get_task(self, name: str) -> Optional['Task']:
-        """
-        Retrieves a task from the registry by its unique name.
+        logger.info(f"Registry: Search request received for task: '{name}'")
+        if not self._discovery_done:
+            logger.info("Registry: Discovery not yet performed. Initializing discovery now...")
+            self._discover()
 
-        Args:
-            name: The name of the task to retrieve.
-
-        Returns:
-            The `Task` object if found, otherwise `None`.
-        """
-        self._discover()
-        return self._tasks.get(name)
+        task = self._tasks.get(name)
+        if task:
+            logger.info(f"Registry: [HIT] Task '{name}' found. Returning Task instance.")
+        else:
+            logger.info(f"Registry: [MISS] Task '{name}' not found. Available tasks: {list(self._tasks.keys())}")
+        return task

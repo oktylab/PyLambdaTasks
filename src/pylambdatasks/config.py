@@ -1,12 +1,6 @@
 from typing import Dict, Optional, Any
 
 class Settings:
-    """
-    A container for the application's runtime configuration.
-    
-    This object is instantiated by `LambdaTasks` and passed to components
-    that require access to configuration values.
-    """
     def __init__(
         self,
         *,
@@ -30,9 +24,6 @@ class Settings:
         
 
     def get_boto_config(self) -> Dict[str, Any]:
-        """
-        Returns a dictionary formatted for the botocore.config.Config object
-        """
         config = {}
         
         if self.connect_timeout is not None:
