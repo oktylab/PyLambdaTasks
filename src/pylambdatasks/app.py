@@ -109,7 +109,6 @@ class LambdaTasks:
     ########################################################################################
     ########################################################################################
     def _run_shutdown_hooks(self):
-        """Triggered by atexit when the Python process is terminating."""
         if not self._shutdown_hooks:
             return
 
@@ -137,11 +136,23 @@ class LambdaTasks:
         return asyncio.run(self._handle_async(event, context))
 
 
+########################################################################################
+    ########################################################################################
+    def handle(self, event: Dict[str, Any], context: Optional[object]) -> Any:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("WARNING: No running event loop detected. Creating a new event loop for this invocation.This may impact performance if the handler is invoked frequently.")
+            loop = None
+
+        if loop and loop.is_running():
+            return loop.run_until_complete(self._handle_async(event, context))
+        else:
+            return asyncio.run(self._handle_async(event, context))
+
     ########################################################################################
     ########################################################################################
     async def _handle_async(self, event: Dict[str, Any], context: Optional[object]) -> Any:
-        """The main async orchestration logic for a single invocation."""
-        
         task_name = event.get("task_name", "UNKNOWN")
         start_time = time.perf_counter()
         
