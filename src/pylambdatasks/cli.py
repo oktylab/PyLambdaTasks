@@ -29,7 +29,6 @@ def run(
         host=host,
         port=port,
         reload=reload,
-        log_level="info",
         timeout_graceful_shutdown=1
     )
 

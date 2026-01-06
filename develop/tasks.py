@@ -1,5 +1,5 @@
 from typing import Annotated, Dict, Any
-from pylambdatasks import Depends
+from pylambdatasks import Depends, LambdaEvent, LambdaContext
 from handler import app
 import asyncio
 
@@ -13,9 +13,13 @@ UserContext = Annotated[Dict[str, str], Depends(get_user_context)]
 @app.task(name="ADD_NUMBERS")
 async def add_numbers(
     a: int, 
-    b: int
+    b: int,
+    event: LambdaEvent,
+    context: LambdaContext
 ):
     print(f"Executing ADD_NUMBERS task: {a} + {b}")
+    print(f"Event Data: {event}")
+    print(f"Context Data: {context}")
     return {"result": a + b}
 
 

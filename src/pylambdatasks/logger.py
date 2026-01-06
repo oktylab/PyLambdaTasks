@@ -1,19 +1,4 @@
-import logging, os, sys
-
+import logging
 logger = logging.getLogger("pylambdatasks")
-
-if os.environ.get("PYLAMBDATASKS_DEBUG") == "1":
-    logger.setLevel(logging.INFO)
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter("[PyLambdaTasks] %(message)s")
-    handler.setFormatter(formatter)
-    
-    if logger.hasHandlers():
-        logger.handlers.clear()
-        
-    logger.addHandler(handler)
-    logger.propagate = False 
-else:
-    logger.addHandler(logging.NullHandler())
-    logger.propagate = False 
-    logger.setLevel(logging.CRITICAL)
+logger.addHandler(logging.NullHandler())
+logger.setLevel(logging.NOTSET)

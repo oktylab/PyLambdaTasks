@@ -1,4 +1,14 @@
 from pylambdatasks import LambdaTasks
+import logging
+import sys
+
+logging.basicConfig(
+    level=logging.INFO, 
+    format="[%(name)s] %(levelname)s: %(message)s",
+    stream=sys.stdout
+)
+
+
 app = LambdaTasks(
     task_modules=['tasks'],
     default_lambda_function_name="PyLambdaTasks",

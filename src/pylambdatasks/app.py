@@ -1,4 +1,4 @@
-import asyncio, atexit, threading, time, sys, os
+import asyncio, atexit, threading, time
 from typing import List, Optional, Dict, Any, Callable
 from .config import Settings
 from .task import Task
@@ -24,7 +24,7 @@ class LambdaTasks:
         read_timeout: Optional[int] = None,
         total_max_attempts: Optional[int] = None,
     ):
-        logger.info(f"App: Initializing PyLambdaTasks for region '{region_name}'")
+        logger.debug(f"App: Initializing PyLambdaTasks for region '{region_name}'")
         
         self.settings = Settings(
             default_lambda_function_name=default_lambda_function_name,
@@ -38,9 +38,9 @@ class LambdaTasks:
         )
 
         if endpoint_url:
-            logger.info(f"App: Using custom endpoint '{endpoint_url}' (Development/LocalStack mode)")
+            logger.debug(f"App: Using custom endpoint '{endpoint_url}' (Development/LocalStack mode)")
         
-        logger.info(f"App: Discovery modules configured: {task_modules}")
+        logger.debug(f"App: Discovery modules configured: {task_modules}")
         self.registry = TaskRegistry(task_modules=task_modules)
 
         self.task = Task.create_decorator(registry=self.registry, settings=self.settings)
@@ -53,7 +53,7 @@ class LambdaTasks:
         self._cold_start = True
 
         atexit.register(self._run_shutdown_hooks)
-        logger.info("App: Instance ready. Shutdown hooks registered with atexit.")
+        logger.debug("App: Instance ready. Shutdown hooks registered with atexit.")
 
         self.handler = self.handle
 
@@ -61,28 +61,28 @@ class LambdaTasks:
     ########################################################################################
     def on_startup(self) -> Callable:
         def register(func: Callable) -> Callable:
-            logger.info(f"App: Registered ON_STARTUP hook: '{func.__name__}'")
+            logger.debug(f"App: Registered ON_STARTUP hook: '{func.__name__}'")
             self._startup_hooks.append(func)
             return func
         return register
 
     def on_shutdown(self) -> Callable:
         def register(func: Callable) -> Callable:
-            logger.info(f"App: Registered ON_SHUTDOWN hook: '{func.__name__}'")
+            logger.debug(f"App: Registered ON_SHUTDOWN hook: '{func.__name__}'")
             self._shutdown_hooks.append(func)
             return func
         return register
         
     def before_request(self) -> Callable:
         def register(func: Callable) -> Callable:
-            logger.info(f"App: Registered BEFORE_REQUEST hook: '{func.__name__}'")
+            logger.debug(f"App: Registered BEFORE_REQUEST hook: '{func.__name__}'")
             self._before_request_hooks.append(func)
             return func
         return register
 
     def after_request(self) -> Callable:
         def register(func: Callable) -> Callable:
-            logger.info(f"App: Registered AFTER_REQUEST hook: '{func.__name__}'")
+            logger.debug(f"App: Registered AFTER_REQUEST hook: '{func.__name__}'")
             self._after_request_hooks.append(func)
             return func
         return register
@@ -93,7 +93,7 @@ class LambdaTasks:
         if not hooks:
             return
         
-        logger.info(f"Lifecycle: Executing {len(hooks)} {hook_type} hooks...")
+        logger.debug(f"Lifecycle: Executing {len(hooks)} {hook_type} hooks...")
         tasks = [
             hook() if asyncio.iscoroutinefunction(hook) else asyncio.to_thread(hook)
             for hook in hooks
@@ -104,7 +104,7 @@ class LambdaTasks:
             if isinstance(res, Exception):
                 logger.error(f"Lifecycle Error: {hook_type} hook '{hooks[i].__name__}' failed: {res}", exc_info=res)
         
-        logger.info(f"Lifecycle: Finished {hook_type} hooks.")
+        logger.debug(f"Lifecycle: Finished {hook_type} hooks.")
 
     ########################################################################################
     ########################################################################################
@@ -112,7 +112,7 @@ class LambdaTasks:
         if not self._shutdown_hooks:
             return
 
-        logger.info(f"App: Shutdown signal received. Processing {len(self._shutdown_hooks)} hooks.")
+        logger.debug(f"App: Shutdown signal received. Processing {len(self._shutdown_hooks)} hooks.")
 
         def runner():
             loop = asyncio.new_event_loop()
@@ -128,7 +128,7 @@ class LambdaTasks:
         if thread.is_alive():
             logger.warning("App: Shutdown hooks timed out after 5 seconds.")
         else:
-            logger.info("App: Shutdown hooks completed successfully.")
+            logger.debug("App: Shutdown hooks completed successfully.")
 
     ########################################################################################
     ########################################################################################
@@ -139,16 +139,7 @@ class LambdaTasks:
 ########################################################################################
     ########################################################################################
     def handle(self, event: Dict[str, Any], context: Optional[object]) -> Any:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            logger.warning("WARNING: No running event loop detected. Creating a new event loop for this invocation.This may impact performance if the handler is invoked frequently.")
-            loop = None
-
-        if loop and loop.is_running():
-            return loop.run_until_complete(self._handle_async(event, context))
-        else:
-            return asyncio.run(self._handle_async(event, context))
+        return asyncio.run(self._handle_async(event, context))
 
     ########################################################################################
     ########################################################################################
@@ -162,15 +153,15 @@ class LambdaTasks:
             "aws_request_id": getattr(context, "aws_request_id", None)
         }
         
-        logger.info(f"Handler: >>> Invocation started for task '{task_name}'", extra=extra)
+        logger.debug(f"Handler: >>> Invocation started for task '{task_name}'", extra=extra)
 
         if self._cold_start:
-            logger.info("Handler: First invocation detected. Triggering cold-start sequence.")
+            logger.debug("Handler: First invocation detected. Triggering cold-start sequence.")
             await self._run_hooks(self._startup_hooks, "ON_STARTUP")
             self._cold_start = False
-            logger.info("Handler: Cold-start sequence finished.")
+            logger.debug("Handler: Cold-start sequence finished.")
 
-        resolver = DependencyResolver()
+        resolver = DependencyResolver(event=event, context=context)
         try:
             if task_name == "UNKNOWN":
                 logger.error("Handler Error: Event payload is missing 'task_name' key.", extra=extra)
@@ -183,17 +174,17 @@ class LambdaTasks:
 
             await self._run_hooks(self._before_request_hooks, "BEFORE_REQUEST")
 
-            logger.info(f"Handler: Resolving dependency tree for '{task_name}'...")
+            logger.debug(f"Handler: Resolving dependency tree for '{task_name}'...")
             injected_kwargs = await resolver.resolve(task.dependant)
-            logger.info(f"Handler: {len(injected_kwargs)} dependencies injected.")
+            logger.debug(f"Handler: {len(injected_kwargs)} dependencies injected.")
 
-            logger.info(f"Handler: Executing task function logic for '{task_name}'")
+            logger.debug(f"Handler: Executing task function logic for '{task_name}'")
             result = await task.execute(event=event, injected_dependencies=injected_kwargs)
             
             duration = time.perf_counter() - start_time
             extra["duration_seconds"] = round(duration, 4)
             
-            logger.info(f"Handler: <<< Task '{task_name}' succeeded in {extra['duration_seconds']}s", extra=extra)
+            logger.debug(f"Handler: <<< Task '{task_name}' succeeded in {extra['duration_seconds']}s", extra=extra)
             return result
 
         except Exception as e:
@@ -211,7 +202,4 @@ class LambdaTasks:
         finally:
             await self._run_hooks(self._after_request_hooks, "AFTER_REQUEST")
             await resolver.cleanup()
-            logger.info(f"Handler: --- Invocation finished for '{task_name}'")
-            if os.environ.get("PYLAMBDATASKS_FORCE_EXIT") == "1":
-                logger.info("WARNING: PYLAMBDATASKS_FORCE_EXIT is set. Forcing process exit.")
-                sys.exit(0)
+            logger.debug(f"Handler: --- Invocation finished for '{task_name}'")

@@ -1,7 +1,8 @@
 import inspect
-from typing import Callable, Any, Dict, Annotated, Optional
-from typing import get_type_hints, get_origin, get_args
+from typing import Callable, Any, Dict, Optional
+from typing import get_type_hints
 from .brokers import invoke_asynchronous, invoke_synchronous
+from .dependencies import LambdaEvent, LambdaContext
 from .dependencies import get_dependant
 from .logger import logger
 from typing import TYPE_CHECKING
@@ -22,41 +23,41 @@ class Task:
         lambda_function_name: str,
         settings: 'Settings',
     ):
-        logger.info(f"Task: Creating instance for '{name}' (Target: {lambda_function_name or 'Default'})")
+        logger.debug(f"Task: Creating instance for '{name}' (Target: {lambda_function_name or 'Default'})")
         self.func_to_execute = func_to_execute
         self.name = name
 
         if lambda_function_name is None:
             self.lambda_function_name = settings.default_lambda_function_name
-            logger.info(f"Task '{name}': Using default Lambda target '{self.lambda_function_name}'")
+            logger.debug(f"Task '{name}': Using default Lambda target '{self.lambda_function_name}'")
         else:
             self.lambda_function_name = lambda_function_name
-            logger.info(f"Task '{name}': Using explicit Lambda target '{self.lambda_function_name}'")
+            logger.debug(f"Task '{name}': Using explicit Lambda target '{self.lambda_function_name}'")
             
         self._settings = settings
 
-        logger.info(f"Task '{name}': Analyzing dependency tree via 'get_dependant'...")
+        logger.debug(f"Task '{name}': Analyzing dependency tree via 'get_dependant'...")
         self.dependant = get_dependant(func_to_execute)
-        logger.info(f"Task '{name}': Tree built. Found {len(self.dependant.dependencies)} injected dependencies.")
+        logger.debug(f"Task '{name}': Tree built. Found {len(self.dependant.dependencies)} injected dependencies.")
 
         self._full_signature = inspect.signature(self.func_to_execute)
         self._user_facing_signature = self._create_user_facing_signature()
         
-        logger.info(f"Task '{name}': Initialization complete. Signature: {self._user_facing_signature}")
+        logger.debug(f"Task '{name}': Initialization complete. Signature: {self._user_facing_signature}")
 
     ####################################################################
     ####################################################################
     @classmethod
     def create_decorator(cls, registry, settings):
         def task_decorator(*, name: str, lambda_function_name: Optional[str] = None):
-            logger.info(f"Decorator: Initializing @app.task for name='{name}'")
+            logger.debug(f"Decorator: Initializing @app.task for name='{name}'")
             
             if not name or not isinstance(name, str):
                 logger.error(f"Decorator Error: Invalid task name provided: {name}")
                 raise TypeError("The task `name` must be a non-empty string.")
             
             def wrapper(func):
-                logger.info(f"Decorator: Wrapping function '{func.__name__}' as task '{name}'")
+                logger.debug(f"Decorator: Wrapping function '{func.__name__}' as task '{name}'")
                 task_instance = cls(
                     func_to_execute=func,
                     name=name,
@@ -73,9 +74,9 @@ class Task:
     ####################################################################
     ####################################################################
     async def delay(self, *args: Any, **kwargs: Any) -> Any:
-        logger.info(f"Task '{self.name}': [.delay()] preparing asynchronous dispatch.")
+        logger.debug(f"Task '{self.name}': [.delay()] preparing asynchronous dispatch.")
         payload = self._build_payload(*args, **kwargs)
-        logger.info(f"Task '{self.name}': Payload built: {payload}")
+        logger.debug(f"Task '{self.name}': Payload built: {payload}")
 
         result = await invoke_asynchronous(
             function_name=self.lambda_function_name,
@@ -83,16 +84,16 @@ class Task:
             settings=self._settings,
         )
 
-        logger.info(f"Task '{self.name}': [.delay()] dispatched successfully to {self.lambda_function_name}.")
+        logger.debug(f"Task '{self.name}': [.delay()] dispatched successfully to {self.lambda_function_name}.")
         return result
 
     ####################################################################
     ####################################################################
     async def invoke(self, *args: Any, **kwargs: Any) -> Any:
-        logger.info(f"Task '{self.name}': [.invoke()] preparing synchronous request.")
+        logger.debug(f"Task '{self.name}': [.invoke()] preparing synchronous request.")
         
         payload = self._build_payload(*args, **kwargs)
-        logger.info(f"Task '{self.name}': Payload built: {payload}")
+        logger.debug(f"Task '{self.name}': Payload built: {payload}")
 
         result = await invoke_synchronous(
             function_name=self.lambda_function_name,
@@ -100,7 +101,7 @@ class Task:
             settings=self._settings,
         )
 
-        logger.info(f"Task '{self.name}': [.invoke()] request returned result: {result}")
+        logger.debug(f"Task '{self.name}': [.invoke()] request returned result: {result}")
         return result
 
     ####################################################################
@@ -111,25 +112,31 @@ class Task:
         event: Dict[str, Any],
         injected_dependencies: Dict[str, Any],
     ) -> Any:
-        logger.info(f"Task '{self.name}': [execute] Extracting arguments from event...")
+        logger.debug(f"Task '{self.name}': [execute] Extracting arguments from event...")
         function_kwargs = self._get_function_args_from_event(event)
-        logger.info(f"Task '{self.name}': [execute] Merging {len(function_kwargs)} event args with {len(injected_dependencies)} injected deps.")
+        logger.debug(f"Task '{self.name}': [execute] Merging {len(function_kwargs)} event args with {len(injected_dependencies)} injected deps.")
         final_kwargs = {**function_kwargs, **injected_dependencies}
-        logger.info(f"Task '{self.name}': [execute] Calling '{self.func_to_execute.__name__}'")
+        logger.debug(f"Task '{self.name}': [execute] Calling '{self.func_to_execute.__name__}'")
         return await self.func_to_execute(**final_kwargs)
     
     ####################################################################
     ####################################################################
     def _create_user_facing_signature(self) -> inspect.Signature:
         user_facing_params = []
+        
+        type_hints = get_type_hints(self.func_to_execute, include_extras=True)
+
         for param in self._full_signature.parameters.values():
             if param.name == 'self':
                 continue            
-            if param.name not in self.dependant.dependencies:
+            
+            hint = type_hints.get(param.name)
+            is_system_marker = hint is LambdaEvent or hint is LambdaContext
+            
+            if param.name not in self.dependant.dependencies and not is_system_marker:
                 user_facing_params.append(param)
         
-        new_sig = self._full_signature.replace(parameters=user_facing_params)
-        return new_sig
+        return self._full_signature.replace(parameters=user_facing_params)
 
     ####################################################################
     ####################################################################

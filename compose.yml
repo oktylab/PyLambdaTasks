@@ -13,7 +13,7 @@ services:
       - pylambdatasks-net
 
     environment:
-      - PYLAMBDATASKS_DEBUG=1
+      - PYLAMBDATASKS_DEBUG=0
 
     entrypoint: ""
     command:
@@ -44,7 +44,7 @@ services:
       - pylambdatasks-net
 
     environment:
-      - PYLAMBDATASKS_DEBUG=1
+      - PYLAMBDATASKS_DEBUG=0
 
     entrypoint: ""
     command: uvicorn api:api --host 0.0.0.0 --port 8000 --reload
