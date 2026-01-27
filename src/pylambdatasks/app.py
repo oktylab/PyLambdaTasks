@@ -1,4 +1,4 @@
-import asyncio, atexit, threading, time
+import asyncio, atexit, threading, time, inspect
 from typing import List, Optional, Dict, Any, Callable
 from .config import Settings
 from .task import Task
@@ -89,17 +89,38 @@ class LambdaTasks:
     
     ########################################################################################
     ########################################################################################
-    async def _run_hooks(self, hooks: List[Callable], hook_type: str):
+    async def _run_hooks(
+        self, 
+        hooks: List[Callable], hook_type: str, 
+        event: Optional[Dict[str, Any]] = None, 
+        context: Optional[Any] = None,
+        task: Optional[Task] = None
+    ):
         if not hooks:
             return
         
         logger.debug(f"Lifecycle: Executing {len(hooks)} {hook_type} hooks...")
-        tasks = [
-            hook() if asyncio.iscoroutinefunction(hook) else asyncio.to_thread(hook)
-            for hook in hooks
-        ]
+        tasks = []
+        for hook in hooks:
+            sig = inspect.signature(hook)
+            hook_args = {}
+            
+            if "event" in sig.parameters:
+                hook_args["event"] = event
+            if "context" in sig.parameters:
+                hook_args["context"] = context
+            if "self" in sig.parameters:
+                hook_args["self"] = self
+            if "task" in sig.parameters:
+                hook_args["task"] = task
+
+            if asyncio.iscoroutinefunction(hook):
+                tasks.append(hook(**hook_args))
+            else:
+                tasks.append(asyncio.to_thread(hook, **hook_args))
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         for i, res in enumerate(results):
             if isinstance(res, Exception):
                 logger.error(f"Lifecycle Error: {hook_type} hook '{hooks[i].__name__}' failed: {res}", exc_info=res)
@@ -146,6 +167,7 @@ class LambdaTasks:
     async def _handle_async(self, event: Dict[str, Any], context: Optional[object]) -> Any:
         task_name = event.get("task_name", "UNKNOWN")
         start_time = time.perf_counter()
+        task = None
         
         extra = {
             "task_name": task_name, 
@@ -157,7 +179,7 @@ class LambdaTasks:
 
         if self._cold_start:
             logger.debug("Handler: First invocation detected. Triggering cold-start sequence.")
-            await self._run_hooks(self._startup_hooks, "ON_STARTUP")
+            await self._run_hooks(self._startup_hooks, "ON_STARTUP", event=event, context=context, task=task)
             self._cold_start = False
             logger.debug("Handler: Cold-start sequence finished.")
 
@@ -172,7 +194,7 @@ class LambdaTasks:
                 logger.error(f"Handler Error: Task '{task_name}' not found in registry.", extra=extra)
                 raise TaskNotFound(f"Task '{task_name}' is not registered.")
 
-            await self._run_hooks(self._before_request_hooks, "BEFORE_REQUEST")
+            await self._run_hooks(self._before_request_hooks, "BEFORE_REQUEST", event=event, context=context, task=task)
 
             logger.debug(f"Handler: Resolving dependency tree for '{task_name}'...")
             injected_kwargs = await resolver.resolve(task.dependant)
@@ -200,6 +222,6 @@ class LambdaTasks:
             raise e
 
         finally:
-            await self._run_hooks(self._after_request_hooks, "AFTER_REQUEST")
+            await self._run_hooks(self._after_request_hooks, "AFTER_REQUEST", event=event, context=context, task=task)
             await resolver.cleanup()
             logger.debug(f"Handler: --- Invocation finished for '{task_name}'")

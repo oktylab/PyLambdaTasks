@@ -15,8 +15,15 @@ class LambdaEvent(dict):
 ####################################################################
 ####################################################################
 class LambdaContext:
-    pass
-
+    function_name: str
+    function_version: str
+    invoked_function_arn: str
+    memory_limit_in_mb: str
+    aws_request_id: str
+    log_group_name: str
+    log_stream_name: str
+    identity: Any 
+    client_context: Any
 
 ####################################################################
 ####################################################################

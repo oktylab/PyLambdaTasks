@@ -1,4 +1,4 @@
-from pylambdatasks import LambdaTasks
+from pylambdatasks import LambdaTasks, Task, LambdaContext
 import logging
 import sys
 
@@ -21,22 +21,26 @@ app = LambdaTasks(
 )
 
 
-# @app.on_startup()
-# async def on_startup():
-#     print("(Cold Start) Lambda function is starting up...")
+@app.on_startup()
+async def on_startup(self: LambdaTasks, event, context: LambdaContext, task: Task):
+    # print(f"on_startup {event}, {context}, {self}, {task}")
+    pass
 
-# @app.on_shutdown()
-# async def on_shutdown():
-#     print("❌ (Container Shutdown) Lambda function is shutting down...")
+@app.on_shutdown()
+async def on_shutdown(self: LambdaTasks, event, context: LambdaContext, task: Task):
+    pass
+    # print(f"on_shutdown {event}, {context}, {self}, {task}")
 
-# @app.before_request()
-# async def before_request():
-#     print("-> Invocation started.")
+@app.before_request()
+async def before_request(self: LambdaTasks, event, context: LambdaContext, task: Task):
+    print(context.aws_request_id)
+    pass
+    # print(f"before_request {event}, {context}, {self}, {task}")
 
-# @app.after_request()
-# async def after_request():
-#     print("<- Invocation finished.")
-
+@app.after_request()
+async def after_request(self: LambdaTasks, event, context: LambdaContext, task: Task):
+    pass
+    # print(f"after_request {event}, {context}, {self}, {task}")
     
 
 handler = app.handler
