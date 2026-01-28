@@ -1,6 +1,6 @@
 from typing import Annotated, Dict, Any
 from pylambdatasks import Depends, LambdaEvent, LambdaContext
-from handler import app
+from handler import app, request_info 
 import asyncio
 
 def get_user_context() -> Dict[str, str]:
@@ -17,9 +17,9 @@ async def add_numbers(
     event: LambdaEvent,
     context: LambdaContext
 ):
-    print(f"Executing ADD_NUMBERS task: {a} + {b}")
-    print(f"Event Data: {event}")
-    print(f"Context Data: {context}")
+
+    custom_ctx = request_info.get()
+    print(f"ContextVar Data (from hook): {custom_ctx}")
     return {"result": a + b}
 
 

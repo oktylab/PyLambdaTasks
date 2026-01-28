@@ -1,6 +1,10 @@
 from pylambdatasks import LambdaTasks, Task, LambdaContext
 import logging
 import sys
+from contextvars import ContextVar
+
+
+request_info: ContextVar[dict] = ContextVar("request_info", default={})
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -32,15 +36,18 @@ async def on_shutdown(self: LambdaTasks, event, context: LambdaContext, task: Ta
     # print(f"on_shutdown {event}, {context}, {self}, {task}")
 
 @app.before_request()
-async def before_request(self: LambdaTasks, event, context: LambdaContext, task: Task):
-    print(context.aws_request_id)
-    pass
-    # print(f"before_request {event}, {context}, {self}, {task}")
+async def before_request(self, event, context, task):
+    new_context = {
+        "id": context.aws_request_id,
+        "function": context.function_name,
+        "task": task.name
+    }
+    request_info.set(new_context)
+    print(f"[Hook] Set ContextVar data: {new_context}")
 
 @app.after_request()
-async def after_request(self: LambdaTasks, event, context: LambdaContext, task: Task):
-    pass
-    # print(f"after_request {event}, {context}, {self}, {task}")
-    
+async def after_request(self, event, context, task):
+    request_info.set({})
+    print("[Hook] Cleared ContextVar")    
 
 handler = app.handler

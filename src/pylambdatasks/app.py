@@ -1,4 +1,4 @@
-import asyncio, atexit, threading, time, inspect
+import asyncio, atexit, threading, time, inspect, contextvars
 from typing import List, Optional, Dict, Any, Callable
 from .config import Settings
 from .task import Task
@@ -100,7 +100,6 @@ class LambdaTasks:
             return
         
         logger.debug(f"Lifecycle: Executing {len(hooks)} {hook_type} hooks...")
-        tasks = []
         for hook in hooks:
             sig = inspect.signature(hook)
             hook_args = {}
@@ -114,17 +113,19 @@ class LambdaTasks:
             if "task" in sig.parameters:
                 hook_args["task"] = task
 
-            if asyncio.iscoroutinefunction(hook):
-                tasks.append(hook(**hook_args))
-            else:
-                tasks.append(asyncio.to_thread(hook, **hook_args))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                if asyncio.iscoroutinefunction(hook):
+                    await hook(**hook_args)
+                else:
+                    await asyncio.to_thread(hook, **hook_args)
+                    
+            except Exception as e:
+                logger.error(
+                    f"Lifecycle Error: {hook_type} hook '{hook.__name__}' failed: {e}", 
+                    exc_info=e
+                )
 
-        for i, res in enumerate(results):
-            if isinstance(res, Exception):
-                logger.error(f"Lifecycle Error: {hook_type} hook '{hooks[i].__name__}' failed: {res}", exc_info=res)
-        
         logger.debug(f"Lifecycle: Finished {hook_type} hooks.")
 
     ########################################################################################
@@ -135,17 +136,22 @@ class LambdaTasks:
 
         logger.debug(f"App: Shutdown signal received. Processing {len(self._shutdown_hooks)} hooks.")
 
+        ctx = contextvars.copy_context()
         def runner():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(self._run_hooks(self._shutdown_hooks, "ON_SHUTDOWN"))
+                ctx.run(
+                    loop.run_until_complete, 
+                    self._run_hooks(self._shutdown_hooks, "ON_SHUTDOWN")
+                )
             finally:
                 loop.close()
 
         thread = threading.Thread(target=runner, daemon=True)
         thread.start()
         thread.join(timeout=5)
+        
         if thread.is_alive():
             logger.warning("App: Shutdown hooks timed out after 5 seconds.")
         else:
