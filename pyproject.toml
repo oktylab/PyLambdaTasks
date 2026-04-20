@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pylambdatasks"
-version = "0.1.16"
+version = "0.3.0"
 description = "A library to simplify creating AWS Lambda images and managing multiple tasks within one image."
 
 authors = [
@@ -48,7 +48,8 @@ classifiers = [
 
 dependencies = [
     "boto3",
-    "awslambdaric"
+    "awslambdaric",
+    "pydantic>=2.0"
 ]
 
 [project.optional-dependencies]
